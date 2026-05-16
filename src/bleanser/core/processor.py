@@ -19,6 +19,7 @@ from typing import (
     ClassVar,
     NoReturn,
     Self,
+    assert_never,
     override,
 )
 
@@ -171,7 +172,7 @@ class BaseNormaliser:
         finally:
             # ugh, kinda annoying that TemporaryDirectory doesn't allow creating a dir with exact name
             # so here we at least reuse its cleanup method
-            TemporaryDirectory._rmtree(str(self.tmp_dir))  # type: ignore[attr-defined]
+            TemporaryDirectory._rmtree(str(self.tmp_dir))  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
     if TYPE_CHECKING:
         # deliberately keep this during type checking to indicate users need to migrate to normalise()
@@ -686,6 +687,7 @@ def apply_instructions(
     *,
     mode: Mode = Dry(),  # noqa: B008
     need_confirm: bool = True,
+    prune_empty_dirs: bool,
 ) -> NoReturn:
     # TODO hmm...
     # if we keep it as iterator, would be kinda nice, then it'd print cleaning stats as you run it
@@ -698,13 +700,11 @@ def apply_instructions(
     else:
         totals = '???'
 
-    # fmt: off
     rm_action = {
         Dry   : click.style('REMOVE (dry mode)', fg='yellow'),
         Move  : click.style('MOVE             ', fg='yellow'),
         Remove: click.style('REMOVE           ', fg='red'   ),
-    }[type(mode)]
-    # fmt: on
+    }[type(mode)]  # fmt: skip  # ty: ignore[invalid-argument-type]
 
     tot_files = 0
     rem_files = 0
@@ -770,7 +770,7 @@ def apply_instructions(
     elif isinstance(mode, Remove):
         pass
     else:
-        raise TypeError(mode, type(mode))
+        assert_never(mode)
 
     for i in instructions:
         # just in case, to make sure no one messed with files in the meantime
@@ -786,5 +786,11 @@ def apply_instructions(
         else:
             logger.info('rm %s', p)
             p.unlink()
+        if prune_empty_dirs:
+            try:
+                p.parent.rmdir()
+            except OSError:
+                # easier to handle defensively (kind of like rmdir --ignore-fail-on-non-empty)
+                pass
 
     sys.exit(exit_code)
